@@ -380,6 +380,37 @@ export const useSubmitAzure = () => {
   };
 };
 
+export const useSubmitJLLGPT = () => {
+  const { saveApiKey, loading } = useSaveApiKey();
+  const {
+    visible: JLLGPTAddingVisible,
+    hideModal: hideJLLGPTAddingModal,
+    showModal: showJLLGPTAddingModal,
+  } = useSetModalState();
+
+  const onJLLGPTAddingOk = useCallback(
+    async (payload: {
+      api_key: string;
+      base_url: string;
+      llm_factory: string;
+    }) => {
+      const ret = await saveApiKey(payload);
+      if (ret === 0) {
+        hideJLLGPTAddingModal();
+      }
+    },
+    [hideJLLGPTAddingModal, saveApiKey],
+  );
+
+  return {
+    JLLGPTAddingLoading: loading,
+    onJLLGPTAddingOk,
+    JLLGPTAddingVisible,
+    hideJLLGPTAddingModal,
+    showJLLGPTAddingModal,
+  };
+};
+
 export const useHandleDeleteLlm = (llmFactory: string) => {
   const { deleteLlm } = useDeleteLlm();
   const showDeleteConfirm = useShowDeleteConfirm();

@@ -41,6 +41,7 @@ import {
   useSubmitFishAudio,
   useSubmitGoogle,
   useSubmitHunyuan,
+  useSubmitJLLGPT,
   useSubmitOllama,
   useSubmitSpark,
   useSubmitSystemModelSetting,
@@ -50,6 +51,7 @@ import {
 } from './hooks';
 import HunyuanModal from './hunyuan-modal';
 import styles from './index.less';
+import JLLGPTModal from './jll-gpt-modal';
 import OllamaModal from './ollama-modal';
 import SparkModal from './spark-modal';
 import SystemModelSettingModal from './system-model-setting-modal';
@@ -250,6 +252,14 @@ const UserSettingModel = () => {
     AzureAddingLoading,
   } = useSubmitAzure();
 
+  const {
+    JLLGPTAddingVisible,
+    hideJLLGPTAddingModal,
+    showJLLGPTAddingModal,
+    onJLLGPTAddingOk,
+    JLLGPTAddingLoading,
+  } = useSubmitJLLGPT();
+
   const ModalMap = useMemo(
     () => ({
       [LLMFactory.Bedrock]: showBedrockAddingModal,
@@ -261,6 +271,7 @@ const UserSettingModel = () => {
       [LLMFactory.TencentCloud]: showTencentCloudAddingModal,
       [LLMFactory.GoogleCloud]: showGoogleAddingModal,
       [LLMFactory.AzureOpenAI]: showAzureAddingModal,
+      [LLMFactory.JLLGpt]: showJLLGPTAddingModal,
     }),
     [
       showBedrockAddingModal,
@@ -272,6 +283,7 @@ const UserSettingModel = () => {
       showFishAudioAddingModal,
       showGoogleAddingModal,
       showAzureAddingModal,
+      showJLLGPTAddingModal,
     ],
   );
 
@@ -465,6 +477,13 @@ const UserSettingModel = () => {
         loading={AzureAddingLoading}
         llmFactory={LLMFactory.AzureOpenAI}
       ></AzureOpenAIModal>
+      <JLLGPTModal
+        visible={JLLGPTAddingVisible}
+        hideModal={hideJLLGPTAddingModal}
+        onOk={onJLLGPTAddingOk}
+        loading={JLLGPTAddingLoading}
+        llmFactory={LLMFactory.JLLGpt}
+      ></JLLGPTModal>
     </section>
   );
 };

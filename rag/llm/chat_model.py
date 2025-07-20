@@ -19,6 +19,7 @@ import logging
 import os
 import random
 import time
+import threading
 from abc import ABC
 from copy import deepcopy
 from typing import Any, Protocol
@@ -1682,3 +1683,194 @@ class GPUStackChat(Base):
             raise ValueError("Local llm url cannot be None")
         base_url = urljoin(base_url, "v1")
         super().__init__(key, model_name, base_url, **kwargs)
+
+
+class JLLGPTChat(Base):
+    _FACTORY_NAME = "JLL GPT"
+
+    def __init__(self, key, model_name="gpt-4", base_url=None, **kwargs):
+        """
+        Initialize JLL GPT chat model.
+        
+        Args:
+            key: JSON string containing M2M credentials:
+                 {
+                     "client_id": "your_m2m_client_id",
+                     "client_secret": "your_m2m_client_secret",
+                     "subscription_key": "your_subscription_key",
+                     "token_url": "your_m2m_token_url",
+                     "base_url": "https://api.jll-gpt.com/v1",
+                     "embedding_base_url": "https://embeddings.jll-gpt.com/v1"
+                 }
+            model_name: Model name to use (default: "gpt-4")
+            base_url: API base URL for JLL GPT service (can be overridden by credentials)
+        """
+        # Parse credentials from key
+        try:
+            import json
+            self.credentials = json.loads(key)
+            self.client_id = self.credentials.get("client_id")
+            self.client_secret = self.credentials.get("client_secret") 
+            self.subscription_key = self.credentials.get("subscription_key")
+            self.token_url = self.credentials.get("token_url")
+            
+            # Use base_url from credentials if available, otherwise use parameter
+            self.chat_base_url = self.credentials.get("base_url") or base_url
+            
+            if not all([self.client_id, self.client_secret, self.subscription_key, self.token_url]):
+                raise ValueError("client_id, client_secret, subscription_key, and token_url are all required")
+                
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValueError(f"Invalid credentials format: {e}")
+            
+        if not self.chat_base_url:
+            raise ValueError("Chat Base URL is required for JLL GPT")
+        
+        # Initialize token management
+        self.m2m_token = None
+        
+        # Initialize base without token first
+        super().__init__("placeholder", model_name, self.chat_base_url, **kwargs)
+        
+        # Override client setup - will be properly initialized when token is generated
+        self._setup_client()
+
+    def _generate_m2m_token(self):
+        """Generate M2M token using client credentials."""
+        from datetime import datetime, timedelta
+        import requests
+        
+        logging.info('Generating M2M token for JLL GPT')
+        try:
+            response = requests.post(
+                url=self.token_url,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json"
+                },
+                data={
+                    "grant_type": "client_credentials",
+                    "scope": "clientcredential"
+                },
+                auth=(self.client_id, self.client_secret),
+                timeout=30
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+            access_token = token_data['access_token']
+            expires_in = datetime.now() + timedelta(seconds=token_data['expires_in'])
+            
+            logging.debug(f'Generated token for JLL GPT, expires at: {expires_in}')
+            
+            return {
+                'access_token': access_token,
+                'expires_in': expires_in
+            }
+        except requests.exceptions.RequestException as e:
+            logging.error(f'Error generating M2M token for JLL GPT: {e}')
+            raise Exception(f"Failed to generate M2M token: {e}")
+        except Exception as e:
+            logging.error(f'Unexpected error generating token: {e}')
+            raise Exception(f"Unexpected error: {e}")
+
+    def _validate_and_refresh_token(self):
+        """Validate current token and refresh if needed."""
+        from datetime import datetime
+        
+        logging.debug('Validating M2M token for JLL GPT')
+        try:
+            if self.m2m_token is None or self.m2m_token['expires_in'] < datetime.now():
+                logging.info('Token expired or missing, generating new token')
+                self.m2m_token = self._generate_m2m_token()
+                self._setup_client()
+            
+            return self.m2m_token['access_token']
+        except Exception as e:
+            logging.error(f'Error validating/refreshing token: {e}')
+            # Retry once
+            try:
+                self.m2m_token = self._generate_m2m_token()
+                self._setup_client()
+                return self.m2m_token['access_token']
+            except Exception as retry_e:
+                logging.error(f'Token retry failed: {retry_e}')
+                raise Exception(f"Token management failed: {retry_e}")
+
+    def _setup_client(self):
+        """Setup OpenAI client with current token and headers."""
+        from uuid import uuid4
+        
+        if self.m2m_token:
+            access_token = self.m2m_token['access_token']
+        else:
+            # Generate initial token
+            self.m2m_token = self._generate_m2m_token()
+            access_token = self.m2m_token['access_token']
+        
+        self.client = OpenAI(
+            api_key=access_token,
+            base_url=self.client.base_url if hasattr(self, 'client') and hasattr(self.client, 'base_url') else self.client._base_url if hasattr(self, 'client') else self.base_url,
+            default_headers={
+                "Subscription-Key": self.subscription_key,
+                "jll-request-id": str(uuid4())
+            },
+            timeout=int(os.environ.get("LM_TIMEOUT_SECONDS", 600))
+        )
+
+    def _chat(self, history, gen_conf):
+        """Override _chat to ensure token is valid before each request."""
+        try:
+            # Validate token before making request
+            self._validate_and_refresh_token()
+            return super()._chat(history, gen_conf)
+        except Exception as e:
+            if "401" in str(e) or "auth" in str(e).lower():
+                # Token might be invalid, try to refresh and retry once
+                try:
+                    logging.warning("Authentication error, refreshing token and retrying")
+                    self.m2m_token = self._generate_m2m_token()
+                    self._setup_client()
+                    return super()._chat(history, gen_conf)
+                except Exception as retry_e:
+                    logging.error(f"Retry after token refresh failed: {retry_e}")
+                    raise
+            raise
+
+    def chat_with_tools(self, system: str, history: list, gen_conf: dict):
+        """Override chat_with_tools to ensure token is valid before each request."""
+        try:
+            # Validate token before making request
+            self._validate_and_refresh_token()
+            return super().chat_with_tools(system, history, gen_conf)
+        except Exception as e:
+            if "401" in str(e) or "auth" in str(e).lower():
+                # Token might be invalid, try to refresh and retry once
+                try:
+                    logging.warning("Authentication error, refreshing token and retrying")
+                    self.m2m_token = self._generate_m2m_token()
+                    self._setup_client()
+                    return super().chat_with_tools(system, history, gen_conf)
+                except Exception as retry_e:
+                    logging.error(f"Retry after token refresh failed: {retry_e}")
+                    raise
+            raise
+
+    def chat_streamly(self, system, history, gen_conf):
+        """Override chat_streamly to ensure token is valid before each request."""
+        try:
+            # Validate token before making request
+            self._validate_and_refresh_token()
+            return super().chat_streamly(system, history, gen_conf)
+        except Exception as e:
+            if "401" in str(e) or "auth" in str(e).lower():
+                # Token might be invalid, try to refresh and retry once
+                try:
+                    logging.warning("Authentication error, refreshing token and retrying")
+                    self.m2m_token = self._generate_m2m_token()
+                    self._setup_client()
+                    return super().chat_streamly(system, history, gen_conf)
+                except Exception as retry_e:
+                    logging.error(f"Retry after token refresh failed: {retry_e}")
+                    raise
+            raise

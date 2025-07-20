@@ -193,6 +193,11 @@ def add_llm():
     elif factory == "Azure-OpenAI":
         api_key = apikey_json(["api_key", "api_version"])
 
+    elif factory == "JLL GPT":
+        # For JLL GPT, the api_key field contains both the JWT token and subscription key
+        # No need to validate specific fields since they're packed in the api_key JSON
+        api_key = apikey_json(["api_key", "subscription_key"])
+
     llm = {
         "tenant_id": current_user.id,
         "llm_factory": factory,

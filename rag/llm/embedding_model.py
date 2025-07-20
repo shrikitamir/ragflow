@@ -901,3 +901,314 @@ class GiteeEmbed(SILICONFLOWEmbed):
         if not base_url:
             base_url = "https://ai.gitee.com/v1/embeddings"
         super().__init__(key, model_name, base_url)
+
+
+class JLLGPTEmbed(Base):
+    _FACTORY_NAME = "JLL GPT"
+
+    def __init__(self, key, model_name, base_url, **kwargs):
+        """
+        Initialize JLL GPT embedding model.
+        
+        Args:
+            key: JSON string containing M2M credentials:
+                 {
+                     "client_id": "your_m2m_client_id",
+                     "client_secret": "your_m2m_client_secret",
+                     "subscription_key": "your_subscription_key",
+                     "token_url": "your_m2m_token_url",
+                     "base_url": "https://api.jll-gpt.com/v1",
+                     "embedding_base_url": "https://embeddings.jll-gpt.com/v1"
+                 }
+            model_name: Model name to use
+            base_url: API base URL for JLL GPT service (can be overridden by credentials)
+        """
+        import json
+        
+        # Parse credentials from key
+        try:
+            self.credentials = json.loads(key)
+            self.client_id = self.credentials.get("client_id")
+            self.client_secret = self.credentials.get("client_secret")
+            self.subscription_key = self.credentials.get("subscription_key")
+            self.token_url = self.credentials.get("token_url")
+            
+            # Use embedding_base_url from credentials if available, otherwise use parameter
+            self.embedding_base_url = self.credentials.get("embedding_base_url") or base_url
+            
+            if not all([self.client_id, self.client_secret, self.subscription_key, self.token_url]):
+                raise ValueError("client_id, client_secret, subscription_key, and token_url are all required")
+                
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValueError(f"Invalid credentials format: {e}")
+            
+        if not self.embedding_base_url:
+            raise ValueError("Embedding Base URL is required for JLL GPT")
+        
+        super().__init__("placeholder", model_name)
+        
+        self.base_url = self.embedding_base_url
+        self.model_name = model_name
+        self.m2m_token = None
+        
+        # Set up client with M2M authentication
+        self._setup_client()
+
+    def _generate_m2m_token(self):
+        """Generate M2M token using client credentials."""
+        from datetime import datetime, timedelta
+        import requests
+        
+        logging.info('Generating M2M token for JLL GPT Embedding')
+        try:
+            response = requests.post(
+                url=self.token_url,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json"
+                },
+                data={
+                    "grant_type": "client_credentials",
+                    "scope": "clientcredential"
+                },
+                auth=(self.client_id, self.client_secret),
+                timeout=30
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+            access_token = token_data['access_token']
+            expires_in = datetime.now() + timedelta(seconds=token_data['expires_in'])
+            
+            logging.debug(f'Generated token for JLL GPT Embedding, expires at: {expires_in}')
+            
+            return {
+                'access_token': access_token,
+                'expires_in': expires_in
+            }
+        except requests.exceptions.RequestException as e:
+            logging.error(f'Error generating M2M token for JLL GPT Embedding: {e}')
+            raise Exception(f"Failed to generate M2M token: {e}")
+        except Exception as e:
+            logging.error(f'Unexpected error generating token: {e}')
+            raise Exception(f"Unexpected error: {e}")
+
+    def _validate_and_refresh_token(self):
+        """Validate current token and refresh if needed."""
+        from datetime import datetime
+        
+        logging.debug('Validating M2M token for JLL GPT Embedding')
+        try:
+            if self.m2m_token is None or self.m2m_token['expires_in'] < datetime.now():
+                logging.info('Token expired or missing, generating new token')
+                self.m2m_token = self._generate_m2m_token()
+                self._setup_client()
+            
+            return self.m2m_token['access_token']
+        except Exception as e:
+            logging.error(f'Error validating/refreshing token: {e}')
+            # Retry once
+            try:
+                self.m2m_token = self._generate_m2m_token()
+                self._setup_client()
+                return self.m2m_token['access_token']
+            except Exception as retry_e:
+                logging.error(f'Token retry failed: {retry_e}')
+                raise Exception(f"Token management failed: {retry_e}")
+
+    def _setup_client(self):
+        """Setup JLL GPT client with M2M authentication."""
+        # Generate initial token if needed
+        if not self.m2m_token:
+            self.m2m_token = self._generate_m2m_token()
+            
+        logging.info("JLL GPT embedding client setup complete")
+    
+    def _create_headers(self):
+        """Create headers for JLL GPT API requests."""
+        from uuid import uuid4
+        
+        # Ensure we have a valid token
+        access_token = self._validate_and_refresh_token()
+        
+        return {
+            'Subscription-Key': self.subscription_key,
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json',
+            'custom-user-id': '<user-id>',
+            'jll-request-id': str(uuid4())
+        }
+
+
+    def encode(self, texts: list):
+        """Encode multiple texts into embeddings using JLL GPT custom API."""
+        import requests
+        from rag.utils import truncate
+        
+        # JLL GPT supports batch processing
+        batch_size = 10  # Reduced batch size for JLL GPT
+        texts = [truncate(t, 8191) for t in texts]
+        ress = []
+        total_tokens = 0
+        
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i : i + batch_size]
+            
+            # JLL GPT custom payload format
+            payload = {
+                "temperature": 0,
+                "inputs": batch_texts,
+                "requestOptions": {
+                    "model": self.model_name
+                }
+            }
+            
+            headers = self._create_headers()
+            correlation_id = headers['jll-request-id']
+            
+            try:
+                response = requests.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("success"):
+                        embeddings = data['data']['embeddings']
+                        # Convert to list of floats
+                        batch_embeddings = [[float(sub_item) for sub_item in item] for item in embeddings]
+                        ress.extend(batch_embeddings)
+                        # Estimate token count based on input length
+                        total_tokens += sum(len(text.split()) for text in batch_texts)
+                    else:
+                        error_msg = data.get('errorMessage', 'Unknown error')
+                        logging.error(f"JLL GPT API error: {error_msg}")
+                        raise Exception(f"JLL GPT API error: {error_msg}")
+                else:
+                    logging.error(f'JLL GPT API error: {response.status_code} {response.text}')
+                    raise Exception(f"HTTP {response.status_code}: {response.text}")
+                    
+            except requests.exceptions.RequestException as e:
+                logging.error(f'JLL GPT embedding request failed (correlation_id: {correlation_id}): {e}')
+                # Retry once with fresh token for auth errors
+                if "401" in str(e) or "auth" in str(e).lower():
+                    try:
+                        logging.warning("Authentication error, refreshing token and retrying")
+                        self.m2m_token = self._generate_m2m_token()
+                        headers = self._create_headers()
+                        response = requests.post(
+                            self.base_url,
+                            headers=headers,
+                            json=payload,
+                            timeout=30
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            if data.get("success"):
+                                embeddings = data['data']['embeddings']
+                                batch_embeddings = [[float(sub_item) for sub_item in item] for item in embeddings]
+                                ress.extend(batch_embeddings)
+                                total_tokens += sum(len(text.split()) for text in batch_texts)
+                            else:
+                                raise Exception(f"JLL GPT API error: {data.get('errorMessage', 'Unknown error')}")
+                        else:
+                            raise Exception(f"HTTP {response.status_code}: {response.text}")
+                    except Exception as retry_e:
+                        logging.error(f"Retry after token refresh failed: {retry_e}")
+                        raise
+                else:
+                    raise
+            except Exception as e:
+                logging.error(f'JLL GPT embedding error (correlation_id: {correlation_id}): {e}')
+                raise
+        
+        return np.array(ress), total_tokens
+
+    def encode_queries(self, text):
+        """Encode a single query text into embedding using JLL GPT custom API."""
+        import requests
+        from rag.utils import truncate
+        
+        # JLL GPT custom payload format for single text
+        payload = {
+            "temperature": 0,
+            "inputs": truncate(text, 8191),  # Single text, not a list
+            "requestOptions": {
+                "model": self.model_name
+            }
+        }
+        
+        headers = self._create_headers()
+        correlation_id = headers['jll-request-id']
+        
+        try:
+            response = requests.post(
+                self.base_url,
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success"):
+                    embeddings = data['data']['embeddings']
+                    # For single query, embeddings should be a single embedding vector
+                    if isinstance(embeddings, list) and len(embeddings) > 0:
+                        embedding = embeddings[0]
+                        # Ensure all elements are floats
+                        if not all(isinstance(item, float) for item in embedding):
+                            embedding = [float(item) for item in embedding]
+                        # Estimate token count based on input length
+                        token_count = len(text.split())
+                        return np.array(embedding), token_count
+                    else:
+                        raise Exception("Invalid embedding response format")
+                else:
+                    error_msg = data.get('errorMessage', 'Unknown error')
+                    logging.error(f"JLL GPT API error: {error_msg}")
+                    raise Exception(f"JLL GPT API error: {error_msg}")
+            else:
+                logging.error(f'JLL GPT API error: {response.status_code} {response.text}')
+                raise Exception(f"HTTP {response.status_code}: {response.text}")
+                
+        except requests.exceptions.RequestException as e:
+            logging.error(f'JLL GPT embedding query request failed (correlation_id: {correlation_id}): {e}')
+            # Retry once with fresh token for auth errors
+            if "401" in str(e) or "auth" in str(e).lower():
+                try:
+                    logging.warning("Authentication error, refreshing token and retrying")
+                    self.m2m_token = self._generate_m2m_token()
+                    headers = self._create_headers()
+                    response = requests.post(
+                        self.base_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=30
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("success"):
+                            embeddings = data['data']['embeddings']
+                            if isinstance(embeddings, list) and len(embeddings) > 0:
+                                embedding = embeddings[0]
+                                embedding = [float(item) for item in embedding]
+                                token_count = len(text.split())
+                                return np.array(embedding), token_count
+                            else:
+                                raise Exception("Invalid embedding response format")
+                        else:
+                            raise Exception(f"JLL GPT API error: {data.get('errorMessage', 'Unknown error')}")
+                    else:
+                        raise Exception(f"HTTP {response.status_code}: {response.text}")
+                except Exception as retry_e:
+                    logging.error(f"Retry after token refresh failed: {retry_e}")
+                    raise
+            else:
+                raise
+        except Exception as e:
+            logging.error(f'JLL GPT embedding query error (correlation_id: {correlation_id}): {e}')
+            raise
