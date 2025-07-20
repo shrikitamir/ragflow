@@ -3871,6 +3871,83 @@
                     "max_tokens": 8191,
                     "model_type": "embedding",
                     "is_tools": false
+                },
+                {
+                    "llm_name": "O_1",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "O3_MINI",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "CLAUDE_3_SONNET_35",
+                    "tags": "LLM,CHAT,200K",
+                    "max_tokens": 200000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "CLAUDE_3_SONNET_37",
+                    "tags": "LLM,CHAT,200K",
+                    "max_tokens": 200000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "BAIDU_ERNIE_40",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "BAIDU_ERNIE_3_5_128K",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "BAIDU_DEEPSEEK_V3",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "GEMINI_15_PRO",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "GEMINI_20_FLASH",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "GEMINI_25_FLASH",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
+                },
+                {
+                    "llm_name": "GEMINI_25_PRO",
+                    "tags": "LLM,CHAT,128K",
+                    "max_tokens": 128000,
+                    "model_type": "chat",
+                    "is_tools": true
                 }
             ]
         }
