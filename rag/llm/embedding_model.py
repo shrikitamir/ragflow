@@ -1131,19 +1131,19 @@ class JLLGPTEmbed(Base):
         """Encode a single query text into embedding using JLL GPT custom API."""
         import requests
         from rag.utils import truncate
-        
-        # JLL GPT custom payload format for single text
+
+        # JLL GPT custom payload format for single text - inputs should be a list
         payload = {
             "temperature": 0,
-            "inputs": truncate(text, 8191),  # Single text, not a list
+            "inputs": [truncate(text, 8191)],  # Changed: inputs should be a list even for single query
             "requestOptions": {
                 "model": self.model_name
             }
         }
-        
+
         headers = self._create_headers()
         correlation_id = headers['jll-request-id']
-        
+
         try:
             response = requests.post(
                 self.base_url,
@@ -1151,7 +1151,7 @@ class JLLGPTEmbed(Base):
                 json=payload,
                 timeout=30
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get("success"):
@@ -1174,7 +1174,7 @@ class JLLGPTEmbed(Base):
             else:
                 logging.error(f'JLL GPT API error: {response.status_code} {response.text}')
                 raise Exception(f"HTTP {response.status_code}: {response.text}")
-                
+
         except requests.exceptions.RequestException as e:
             logging.error(f'JLL GPT embedding query request failed (correlation_id: {correlation_id}): {e}')
             # Retry once with fresh token for auth errors
