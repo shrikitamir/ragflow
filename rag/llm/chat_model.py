@@ -1874,3 +1874,12 @@ class JLLGPTChat(Base):
                     logging.error(f"Retry after token refresh failed: {retry_e}")
                     raise
             raise
+
+
+class DeepInfraChat(Base):
+    _FACTORY_NAME = "DeepInfra"
+
+    def __init__(self, key, model_name, base_url="https://api.deepinfra.com/v1/openai", **kwargs):
+        if not base_url:
+            base_url = "https://api.deepinfra.com/v1/openai"
+        super().__init__(key, model_name, base_url, **kwargs)

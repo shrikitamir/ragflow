@@ -202,8 +202,9 @@ class QWenEmbed(Base):
         self.model_name = model_name
 
     def encode(self, texts: list):
-        import dashscope
         import time
+
+        import dashscope
 
         batch_size = 4
         res = []
@@ -282,7 +283,7 @@ class OllamaEmbed(Base):
     _special_tokens = ["<|endoftext|>"]
 
     def __init__(self, key, model_name, **kwargs):
-        self.client = Client(host=kwargs["base_url"]) if not key or key == "x" else Client(host=kwargs["base_url"], headers={"Authorization": f"Bear {key}"})
+        self.client = Client(host=kwargs["base_url"]) if not key or key == "x" else Client(host=kwargs["base_url"], headers={"Authorization": f"Bearer {key}"})
         self.model_name = model_name
 
     def encode(self, texts: list):
@@ -352,8 +353,7 @@ class FastEmbed(DefaultEmbedding):
         # Using the internal tokenizer to encode the texts and get the total
         # number of tokens
         encoding = self._model.model.tokenizer.encode(text)
-        embedding = next(self._model.query_embed(text)).tolist()
-
+        embedding = next(self._model.query_embed(text))
         return np.array(embedding), len(encoding.ids)
 
 
@@ -1212,3 +1212,12 @@ class JLLGPTEmbed(Base):
         except Exception as e:
             logging.error(f'JLL GPT embedding query error (correlation_id: {correlation_id}): {e}')
             raise
+
+
+class DeepInfraEmbed(OpenAIEmbed):
+    _FACTORY_NAME = "DeepInfra"
+
+    def __init__(self, key, model_name, base_url="https://api.deepinfra.com/v1/openai"):
+        if not base_url:
+            base_url = "https://api.deepinfra.com/v1/openai"
+        super().__init__(key, model_name, base_url)
